@@ -22,7 +22,9 @@ This guide takes you from zero to running C programs on an FPGA, using an open-s
 Preferably a Linux system (Windows can work too, with some extra setup)
 
 # 🛠️ Steps Overview
-- Set up the PicoRV32 core and connect peripherals
+- Set up the PicoRV32 core
+  
+- Connect peripherals
 
 - Install the RISC-V toolchain (riscv-gcc, etc.)
 
@@ -118,7 +120,12 @@ module top (
     wire [31:0] mem_addr, mem_wdata, mem_rdata;
     wire [3:0] mem_wstrb;
 
-    assign mem_ready = mem_valid;
+    reg mem_ready_reg;
+    assign mem_ready = mem_ready_reg;
+
+    always @(posedge clk) begin
+        mem_ready_reg <= mem_valid;  // 1 cycle delayed
+    end
 
     picorv32 #(
         .STACKADDR(STACKADDR),
@@ -155,18 +162,33 @@ module top (
     );
 endmodule
 ```
+We will run this asm program to check IF cpu is working or not
+```asm
+loop:
+    nop
+    nop
+    c.j loop
+```
+This is the memory layout of this program
+```asm
+Disassembly of section .text:
+
+00000000 <loop>:
+   0:	0001                	c.addi	zero,0
+   2:	0001                	c.addi	zero,0
+   4:	bff5                	c.j	0 <loop>
+```
+
 📦 Prepare Memory Contents
-Create a memory.mem file with dummy instructions like this:
+Create a memory.mem file which contains the hex representation of above asm program:
 
 ```
-00000013
-00000013
-00000013
-00000013
+00010001
+0000bff5
 ```
-Each line is a 32-bit instruction in hex — here, 00000013 represents a NOP (ADDI x0, x0, 0).
-
+Each line is a 32-bit instruction in hex .
 This will help you verify the system is fetching and executing instructions.
+
 
 🧪 Create a Testbench (top_tb.v)
 ```verilog
@@ -187,14 +209,14 @@ module top_tb;
 
     initial begin
         $display("Starting simulation...");
-
+        #100;
         resetn = 0;
         #100;
         resetn = 1;
 
         $display("Reset deasserted. Running...");
 
-        #5000;
+        #10000;
 
         $display("Simulation finished.");
         $finish;
@@ -207,6 +229,436 @@ After you run the simulation:
 
 Check the Program Counter (PC) inside the picorv32 instance.
 
-If it increments over time, your system is booting and executing the NOPs.
+If it increments over time, your system is booting and executing the loop. 0 -> 2 -> 4 
 
 If it stays stuck, recheck clock, reset, or memory connections.
+If everything is okay 
+then Hurray You booted a minimal SOC which consists CPU and memory.
+
+## 🧪 <a id="step2"></a>Step 2: Connect the Peripherals
+Peripherals might seem magical at first, but they’re actually very straightforward—they behave just like memory.
+
+You assign each peripheral a memory address, and then your processor can read and write to that address just like normal RAM. This concept is called memory-mapped I/O.
+
+In our system, we will:
+
+Map LEDs to a specific address so we can control them.
+
+Map a UART peripheral (for serial communication) to two memory-mapped registers.
+
+### 📌 Peripheral Memory Map
+        Peripheral	Address Range
+        RAM	0x0000_0000 – 0x0000_1000
+        LED Module	0x0200_0000
+        UART (Baud)	0x0200_0004
+        UART (Data)	0x0200_0008
+
+UART has two registers:
+
+Baud Rate Register: Sets how fast data is transmitted.
+
+Data Register: Used for both sending and receiving characters.
+
+When two UART devices use the same baud rate, they can talk to each other.
+
+Take a look at the code that handles memory-mapped peripherals:
+
+```verilog
+wire led_sel = mem_valid && (mem_addr == 32'h0200_0000);
+wire simpleuart_reg_div_sel = mem_valid && (mem_addr == 32'h0200_0004);
+wire simpleuart_reg_dat_sel = mem_valid && (mem_addr == 32'h0200_0008);
+```
+
+### 💡 Implementing the LED Module
+The LED module behaves just like memory. Here’s a minimal implementation:
+```verilog
+
+module led_module (
+    input clk,
+    input resetn,
+    input [3:0] wen,
+    input [31:0] wdata,
+    output reg [31:0] rdata
+);
+    (* syn_keep *) reg [31:0] device_reg;
+    always @(posedge clk) begin
+        if (!resetn) 
+            device_reg <= 32'h0;
+        else if (|wen) begin 
+            if (wen[0]) device_reg[7:0]   <= wdata[7:0];
+            if (wen[1]) device_reg[15:8]  <= wdata[15:8];
+            if (wen[2]) device_reg[23:16] <= wdata[23:16];
+            if (wen[3]) device_reg[31:24] <= wdata[31:24];
+        end
+    end
+    
+
+    always @(*) begin
+        rdata = device_reg;
+    end
+endmodule
+```
+The lower 4 bits of device_reg will drive the LEDs. You can wire them directly to the FPGA output pins.
+
+### ✉️ Adding UART Support
+Add simpleuart.v from the picorv32/picosoc/ folder to your project.
+
+### 🏗 Updated Top Module
+Here’s how your top-level SoC module should look after adding LED and UART peripherals.
+```verilog
+`timescale 1ns / 1ns
+module top #(
+    parameter NO_OF_LEDS = 4
+)
+(
+    input clk,
+    input resetn,
+
+    
+	output ser_tx,
+	input  ser_rx,
+	
+    output [NO_OF_LEDS-1:0] led,
+    output reset_led
+   
+    
+);  
+    parameter MEM_WORDS = 8192;
+    parameter [ 0:0] ENABLE_COUNTERS = 1;
+    parameter [ 0:0] ENABLE_COUNTERS64 = 1;
+    parameter [ 0:0] ENABLE_REGS_16_31 = 1;
+    parameter [ 0:0] ENABLE_REGS_DUALPORT = 1;
+    parameter [ 0:0] LATCHED_MEM_RDATA = 0; 
+    parameter [ 0:0] TWO_STAGE_SHIFT = 0;
+    parameter [ 0:0] BARREL_SHIFTER = 1;
+    parameter [ 0:0] TWO_CYCLE_COMPARE = 0;
+    parameter [ 0:0] TWO_CYCLE_ALU = 0;
+    parameter [ 0:0] COMPRESSED_ISA = 1;
+    parameter [ 0:0] CATCH_MISALIGN = 1;
+    parameter [ 0:0] CATCH_ILLINSN = 1;
+    parameter [ 0:0] ENABLE_PCPI = 0;
+    parameter [ 0:0] ENABLE_MUL = 1;
+    parameter [ 0:0] ENABLE_FAST_MUL = 0;
+    parameter [ 0:0] ENABLE_DIV = 1;
+    parameter [ 0:0] ENABLE_IRQ = 0;
+    parameter [ 0:0] ENABLE_IRQ_QREGS = 0;
+    parameter [ 0:0] ENABLE_IRQ_TIMER = 0;
+    parameter [ 0:0] ENABLE_TRACE = 0;
+    parameter [ 0:0] REGS_INIT_ZERO = 0;
+    parameter [31:0] MASKED_IRQ = 32'h 0000_0000;
+    parameter [31:0] LATCHED_IRQ = 32'h ffff_ffff;
+    parameter [31:0] PROGADDR_RESET = 32'h 0000_0000;
+    parameter [31:0] PROGADDR_IRQ = 32'h 0000_0000;
+    parameter [31:0] STACKADDR = 32'd 8000;
+    
+    wire mem_valid;
+    wire mem_instr;
+    wire mem_ready;
+    wire [31:0] mem_addr;
+    wire [31:0] mem_wdata;
+    wire [3:0] mem_wstrb;
+    wire [31:0] mem_rdata;
+    
+   
+    // RAM signals
+    reg ram_ready;
+    wire [31:0] ram_rdata;
+    
+    // led Signals
+    wire [31:0] led_rdata;
+    
+    
+    wire led_sel = mem_valid && (mem_addr == 32'h 0200_0000);// adress of led module
+    wire        simpleuart_reg_div_sel = mem_valid && (mem_addr == 32'h 0200_0004); // adress of uart baud reg
+	wire [31:0] simpleuart_reg_div_do;
+
+	wire        simpleuart_reg_dat_sel = mem_valid && (mem_addr == 32'h 0200_0008); // adress of uart I/O data
+	wire [31:0] simpleuart_reg_dat_do;
+	wire        simpleuart_reg_dat_wait;
+
+
+
+ 
+    assign mem_ready = ram_ready || led_sel ||
+			simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
+
+	assign mem_rdata =  ram_ready ? ram_rdata : simpleuart_reg_div_sel ? simpleuart_reg_div_do :
+			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : led_sel ? led_rdata : 32'h 0000_0000;
+
+   
+                   
+    always @(posedge clk)
+        ram_ready <= mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS;
+   
+       picorv32 #(
+        .ENABLE_COUNTERS(ENABLE_COUNTERS),
+        .ENABLE_COUNTERS64(ENABLE_COUNTERS64),
+        .ENABLE_REGS_16_31(ENABLE_REGS_16_31),
+        .ENABLE_REGS_DUALPORT(ENABLE_REGS_DUALPORT),
+        .LATCHED_MEM_RDATA(LATCHED_MEM_RDATA),
+        .TWO_STAGE_SHIFT(TWO_STAGE_SHIFT),
+        .BARREL_SHIFTER(BARREL_SHIFTER),
+        .TWO_CYCLE_COMPARE(TWO_CYCLE_COMPARE),
+        .TWO_CYCLE_ALU(TWO_CYCLE_ALU),
+        .COMPRESSED_ISA(COMPRESSED_ISA),
+        .CATCH_MISALIGN(CATCH_MISALIGN),
+        .CATCH_ILLINSN(CATCH_ILLINSN),
+        .ENABLE_PCPI(ENABLE_PCPI),
+        .ENABLE_MUL(ENABLE_MUL),
+        .ENABLE_FAST_MUL(ENABLE_FAST_MUL),
+        .ENABLE_DIV(ENABLE_DIV),
+        .ENABLE_IRQ(ENABLE_IRQ),
+        .ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS),
+        .ENABLE_IRQ_TIMER(ENABLE_IRQ_TIMER),
+        .ENABLE_TRACE(ENABLE_TRACE),
+        .REGS_INIT_ZERO(REGS_INIT_ZERO),
+        .MASKED_IRQ(MASKED_IRQ),
+        .LATCHED_IRQ(LATCHED_IRQ),
+        .PROGADDR_RESET(PROGADDR_RESET),
+        .PROGADDR_IRQ(PROGADDR_IRQ),
+        .STACKADDR(STACKADDR)
+    ) cpu (
+        .clk(clk),
+        .resetn(resetn),
+        .mem_valid(mem_valid),
+        .mem_instr(mem_instr),
+        .mem_ready(mem_ready),
+        .mem_addr(mem_addr),
+        .mem_wdata(mem_wdata),
+        .mem_rdata(mem_rdata),
+        .mem_wstrb(mem_wstrb),
+        
+        .trap(),
+        // Look-Ahead Interface (Unused)
+        .mem_la_read(),        
+        .mem_la_write(),       
+        .mem_la_addr(),        
+        .mem_la_wdata(),       
+        .mem_la_wstrb(),       
+
+        // Pico Co-Processor Interface (Unused)
+        .pcpi_valid(),         
+        .pcpi_insn(),          
+        .pcpi_rs1(),          
+        .pcpi_rs2(),          
+        .pcpi_wr(),           
+        .pcpi_rd(),           
+        .pcpi_wait(),         
+        .pcpi_ready(),        
+
+        // IRQ Interface (Explicitly tied to 0)
+        .irq(32'b0),           
+        .eoi(),           
+
+        // Debug/Trace Interface (Unused)
+        .trace_valid(),       
+        .trace_data() 
+    );
+
+    simpleuart simpleuart (
+		.clk         (clk         ),
+		.resetn      (resetn      ),
+
+		.ser_tx      (ser_tx      ),
+		.ser_rx      (ser_rx      ),
+
+		.reg_div_we  (simpleuart_reg_div_sel ? mem_wstrb : 4'b 0000),
+		.reg_div_di  (mem_wdata),
+		.reg_div_do  (simpleuart_reg_div_do),
+
+		.reg_dat_we  (simpleuart_reg_dat_sel ? mem_wstrb[0] : 1'b 0),
+		.reg_dat_re  (simpleuart_reg_dat_sel && !mem_wstrb),
+		.reg_dat_di  (mem_wdata),
+		.reg_dat_do  (simpleuart_reg_dat_do),
+		.reg_dat_wait(simpleuart_reg_dat_wait)
+	);
+	
+    memory #(
+        .WORDS(MEM_WORDS)
+    ) ram (
+        .clk(clk),
+        .wen((mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS) ? mem_wstrb : 4'b0),
+        .addr(mem_addr[23:2]),
+        .wdata(mem_wdata),
+        .rdata(ram_rdata)
+    );
+
+    // LED device with simpler interface
+    led_module device (
+        .clk(clk),
+        .resetn(resetn),
+        .wen(led_sel ? mem_wstrb : 4'b0),
+        .wdata(mem_wdata),
+        .rdata(led_rdata)
+    );
+    
+    
+    assign led = led_rdata[NO_OF_LEDS-1:0];
+    assign reset_led = resetn;
+endmodule
+
+
+module led_module (
+    input clk,
+    input resetn,
+    input [3:0] wen,
+    input [31:0] wdata,
+    output reg [31:0] rdata
+);
+    (* syn_keep *) reg [31:0] device_reg;
+    always @(posedge clk) begin
+        if (!resetn) 
+            device_reg <= 32'h0;
+        else if (|wen) begin 
+            if (wen[0]) device_reg[7:0]   <= wdata[7:0];
+            if (wen[1]) device_reg[15:8]  <= wdata[15:8];
+            if (wen[2]) device_reg[23:16] <= wdata[23:16];
+            if (wen[3]) device_reg[31:24] <= wdata[31:24];
+        end
+    end
+    
+
+    always @(*) begin
+        rdata = device_reg;
+    end
+endmodule
+
+
+
+
+
+
+
+
+```
+Note: You can change the NO_OF_LEDS parameter to match your board. Also, wire the resetn signal to a physical button for hardware reset.
+
+Now update the testbench also 
+
+```verilog
+`timescale 1ns / 1ns
+
+module top_tb;
+    // Simulation parameters
+    parameter CLK_PERIOD = 20; // 
+    parameter NO_OF_LEDS = 4;
+   
+    // Testbench signals
+    reg clk;
+    reg resetn;
+    reg ser_rx;
+    wire ser_tx;
+    wire [NO_OF_LEDS-1:0] led;
+    wire reset_led;
+    
+    // Instantiate the SOC with debug signals
+    top #(
+        .NO_OF_LEDS(NO_OF_LEDS)
+    )uut (
+        .clk(clk),
+        .resetn(resetn),
+        .ser_rx(ser_rx),
+        .ser_tx(ser_tx),
+        .led(led),
+        .reset_led(reset_led)
+    );
+
+    // Clock generation
+    initial begin
+        clk = 0;
+        forever #(CLK_PERIOD/2) clk = ~clk;
+    end
+
+
+    initial begin
+        // Initialize signals
+        #100;
+        clk = 0;
+        resetn = 0;
+        ser_rx = 1;
+        #100;   // Wait 100ns
+        resetn = 1;  // Release reset
+
+        // Run simulation for some time
+        #1000;
+
+        $finish;
+    end
+
+endmodule
+
+```
+
+### 💡 Writing to the LEDs (RISC-V Assembly)
+
+```asm
+.section .text
+.globl _start
+_start:
+    li t0, 0x02000000  # Base address of LED register
+    li t1, 0           # Counter = 0
+
+write_loop:
+    sw t1, 0(t0)       # Write t1 to LED register
+    addi t1, t1, 1     # t1 = t1 + 1
+    li t2, 16          # Limit = 16
+    blt t1, t2, write_loop
+
+hang:
+    j hang             # Done. Halt here
+
+```
+Disassembled layout:
+```asm
+Disassembly of section .text:
+
+00000000 <_start>:
+   0:	020002b7          	lui	t0,0x2000
+   4:	4301                	c.li	t1,0
+
+00000006 <write_loop>:
+   6:	0062a023          	sw	t1,0(t0) # 2000000 <hang+0x1ffffee>
+   a:	0305                	c.addi	t1,1
+   c:	43c1                	c.li	t2,16
+   e:	fe734ce3          	blt	t1,t2,6 <write_loop>
+
+00000012 <hang>:
+  12:	a001                	c.j	12 <hang>
+
+```
+
+### 📦 Memory File (memory.mem)
+Paste the following into your memory.mem:
+
+```
+020002b7
+a0234301
+03050062
+4ce343c1
+a001fe73
+```
+
+### ✅ Simulation Output
+Once you run the simulation, the led output should cycle through values 0 to 15.
+
+You’ve now:
+
+Mapped peripherals into memory
+
+Controlled LEDs using RISC-V assembly
+
+Set up UART communication
+
+Built a fully working SoC with Verilog and assembly
+
+
+
+
+
+
+
+
+
+
+
+
