@@ -1,6 +1,6 @@
-title: "My Blogs Name"
+title: "Hello World from Scratch: Bringing Up a RISC-V Core from RT"
 author: "Abinash Singh"
-description: "Some short description of your blog can go here." # This will show up in places like twitter, linkedin, etc, if you share your sites url as a post.
+description: "A hands-on walkthrough of setting up an open-source RISC-V core from RTL and running your first Hello World program on it." # This will show up in places like twitter, linkedin, etc, if you share your sites url as a post.
 
 # Email / Social media user names used by the minima theme:
 # All of these are optional and can be removed or commented out
