@@ -4,7 +4,7 @@ Welcome! If you're wondering how to get started with hardware design, you've lan
 This guide takes you from zero to running C programs on an FPGA, using an open-source RISC-V core. Whether you're a student, hobbyist, or engineer looking to understand the full hardware-software bring-up process, this post will walk you through the essentials — from writing Verilog to printing "Hello, World" on your console.
 
 # 🎯 Goals
-- [Boot an FPGA with a CPU and memory](#step1)
+- Boot an FPGA with a CPU and memory
 
 - Add peripherals like UART, GPIO, LEDs, or your own custom digital logic
 
@@ -22,9 +22,9 @@ This guide takes you from zero to running C programs on an FPGA, using an open-s
 Preferably a Linux system (Windows can work too, with some extra setup)
 
 # 🛠️ Steps Overview
-- Set up the PicoRV32 core
+- [Set up the PicoRV32 core](#step1)
   
-- Connect peripherals
+- [Connect peripherals](#step2)
 
 - Install the RISC-V toolchain (riscv-gcc, etc.)
 
@@ -230,6 +230,7 @@ After you run the simulation:
 Check the Program Counter (PC) inside the picorv32 instance.
 
 If it increments over time, your system is booting and executing the loop. 0 -> 2 -> 4 
+![vivado behav sim](/media/reg_pc_sim.png)
 
 If it stays stuck, recheck clock, reset, or memory connections.
 If everything is okay 
@@ -640,7 +641,7 @@ a001fe73
 
 ### ✅ Simulation Output
 Once you run the simulation, the led output should cycle through values 0 to 15.
-
+![vivado behav sim](/media/led_sim.png)
 You’ve now:
 
 Mapped peripherals into memory
