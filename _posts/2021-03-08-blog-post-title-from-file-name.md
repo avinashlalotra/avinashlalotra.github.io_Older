@@ -1,32 +1,34 @@
-## Blog Post Title From First Header
+## 🚀 Hello World from Scratch: Bringing Up a RISC-V Core from RTL to C
+Welcome! If you're wondering how to get started with hardware design, you've landed in the right place.
 
-Due to a plugin called `jekyll-titles-from-headings` which is supported by GitHub Pages by default. The above header (in the markdown file) will be automatically used as the pages title.
+This guide takes you from zero to running C programs on an FPGA, using an open-source RISC-V core. Whether you're a student, hobbyist, or engineer looking to understand the full hardware-software bring-up process, this post will walk you through the essentials — from writing Verilog to printing "Hello, World" on your console.
 
-If the file does not start with a header, then the post title will be derived from the filename.
+# 🎯 Goals
+- Boot an FPGA with a CPU and memory
 
-This is a sample blog post. You can talk about all sorts of fun things here.
+- Add peripherals like UART, GPIO, LEDs, or your own custom digital logic
 
----
+- Run C and assembly programs on the system
 
-### This is a header
+- Finally... print "Hello, World" to the console!
 
-#### Some T-SQL Code
+# 🧰 Requirements
+- Any FPGA board
 
-```tsql
-SELECT This, [Is], A, Code, Block -- Using SSMS style syntax highlighting
-    , REVERSE('abc')
-FROM dbo.SomeTable s
-    CROSS JOIN dbo.OtherTable o;
-```
+- A system with Vivado installed
 
-#### Some PowerShell Code
+- Basic familiarity with Verilog, C, and assembly (If you're new to these — no worries! This guide is beginner-friendly.)
 
-```powershell
-Write-Host "This is a powershell Code block";
+Preferably a Linux system (Windows can work too, with some extra setup)
 
-# There are many other languages you can use, but the style has to be loaded first
+# 🛠️ Steps Overview
+- Set up the PicoRV32 core and connect peripherals
 
-ForEach ($thing in $things) {
-    Write-Output "It highlights it using the GitHub style"
-}
+- Install the RISC-V toolchain (riscv-gcc, etc.)
+
+- Write, compile, and load C programs into memory
+
+- Watch your console light up with:
+```bash
+Hello, World
 ```
