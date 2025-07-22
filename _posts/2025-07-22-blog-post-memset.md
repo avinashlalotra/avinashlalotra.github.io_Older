@@ -1,3 +1,11 @@
+---
+layout: post
+title: "Optimizing memset() in RISC-V Assembly — From C to Bare Metal"
+date: 2025-07-22
+categories: [riscv, assembly, embedded]
+tags: [memset, riscv, assembly, newlib, toolchain, optimization]
+---
+
 # 🚀 Optimizing `memset()` in RISC-V Assembly — From C to Bare Metal  
 *By Abinash Singh | July 2025*  
 📌 GitHub: [https://github.com/avinashlalotra/newlib-Optimization-Task](https://github.com/avinashlalotra/newlib-Optimization-Task) 
